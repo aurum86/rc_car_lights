@@ -6,19 +6,19 @@ class Turns {
     unsigned long turnRightHi;
     unsigned long throttleLo;
     unsigned long throttleHi;
-    unsigned long timeout;
+    unsigned long delay;
 
     unsigned long previousMillis = 0;
 
     OnBlink onTurn;
   public:
-    Turns(unsigned long turnLeftLo, unsigned long turnRightHi, unsigned long throttleLo, unsigned long throttleHi, OnBlink onTurn, unsigned long timeout = 3000):
+    Turns(unsigned long turnLeftLo, unsigned long turnRightHi, unsigned long throttleLo, unsigned long throttleHi, OnBlink onTurn, unsigned long delay = 3000):
       turnLeftLo(turnLeftLo),
       turnRightHi(turnRightHi),
       throttleHi(throttleHi),
       throttleLo(throttleLo),
       onTurn(onTurn),
-      timeout(timeout)
+      delay(delay)
       {}
     void evaluate(unsigned long currentMillis, unsigned long CH1, unsigned long CH2) {
       int turn = -1;
@@ -28,7 +28,7 @@ class Turns {
       }
       
       if ((CH2 < this->throttleHi) && (CH2 > this->throttleLo)) {
-        if ((currentMillis - this->previousMillis) >= this->timeout) {
+        if ((currentMillis - this->previousMillis) >= this->delay) {
           if (CH1 > this->turnLeftLo) {
             turn = 1;
           }
