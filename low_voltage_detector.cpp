@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-typedef void (*OnLowVoltage)();
+typedef void (*OnLowVoltageEvent)();
 
 class LowVoltageDetector {
   private:
@@ -9,9 +9,9 @@ class LowVoltageDetector {
     long decayVelocity;
     float batteryMaxVoltage;
 
-    OnLowVoltage onLowVoltage;
+    OnLowVoltageEvent onLowVoltage;
   public:
-    LowVoltageDetector(float limitVoltage, OnLowVoltage onLowVoltage, float batteryMaxVoltage = 8.4, float decayVelocity = 0.8):
+    LowVoltageDetector(float limitVoltage, OnLowVoltageEvent onLowVoltage, float batteryMaxVoltage = 8.4, float decayVelocity = 0.8):
       limitVoltage(limitVoltage),
       onLowVoltage(onLowVoltage),
       batteryMaxVoltage(batteryMaxVoltage),

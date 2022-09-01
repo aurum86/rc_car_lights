@@ -38,13 +38,9 @@ void HLights2Toggle(bool isTurnedOn) {
     delay(50);
     analogWrite(pinLights2, brightness);
   } else {
-    for (int i = 30; i <= brightness; i++) {
-      analogWrite(pinLights2, i);
-      delay(2);
-    }
     for (int i = brightness; i >= 0; i--) {
       analogWrite(pinLights2, i);
-      delay(10);
+      delay(20);
     }
   }
 }
@@ -102,6 +98,9 @@ void OnEmergency(bool isOn) {
   int pins[2] = {pinLeft, pinRight};
   Blink(pins, isOn);
 }
+void OnLowVoltage() {
+  OnEmergency(true);
+}
 
 void OnBackFire() {
   analogWrite(pinExhaust, 127);
@@ -132,14 +131,14 @@ Turns turns = Turns(turnLeftLo, turnRightHi, throttleLo, throttleHi, Blink1);
 EmergencyLights emergencyLights = EmergencyLights(1000, 1200, OnEmergency);
 EmergencyLights emergencyLightsWithDaylights = EmergencyLights(1700, 1900, OnEmergency);
 
-BackFire backFire = BackFire(1500, NULL);
+BackFire backFire = BackFire(1500, OnBackFire);
 
 int NeutralLo = 1375;
 int NeutralHi = 1400;
 BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, 0);
 BreakReverse breakReverse = BreakReverse(breakReverseState, OnReverse, OnBreak);
 
-LowVoltageDetector lowVoltageDetector = LowVoltageDetector(6.6, NULL);
+LowVoltageDetector lowVoltageDetector = LowVoltageDetector(6.6, OnLowVoltage);
 
 unsigned long voltage;
 unsigned long CH3;
