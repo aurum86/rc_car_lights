@@ -3,9 +3,11 @@
 typedef void (*OnLowVoltageEvent)();
 
 class LowVoltageDetector {
+  const float ARDUINO_VOLTAGE = 5.0;
+  const float VOLTAGE_DIVIDER = 0.5;
   private:
     float limitVoltage;
-    float averageVoltage;
+    float averageVoltage = 0.0;
     long decayVelocity;
     float batteryMaxVoltage;
 
@@ -20,9 +22,10 @@ class LowVoltageDetector {
     }
 
     bool evaluate(unsigned long value) {
-      float voltage = map(value, 0, 1023, 0, this->batteryMaxVoltage);
+      float qoeficient = LowVoltageDetector::ARDUINO_VOLTAGE / this->batteryMaxVoltage / LowVoltageDetector::VOLTAGE_DIVIDER;
+      float voltage = this->mapFloat(value * qoeficient, 0.0, 1023.0, 0.0, this->batteryMaxVoltage);
       
-      this->averageVoltage = (this->decayVelocity * voltage) + (1.0 - this->decayVelocity) * this->averageVoltage;
+      this->averageVoltage = this->calcEMA(voltage);
       
       if (this->averageVoltage <= this->limitVoltage)
       {
@@ -32,5 +35,14 @@ class LowVoltageDetector {
       }
 
       return false;
+    }
+
+    float calcEMA(float value)
+    {
+       return (value - this->averageVoltage) * 0.2 + this->averageVoltage;
+    }
+
+    float mapFloat(float x, float in_min, float in_max, float out_min, float out_max) {
+       return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
     }
 };

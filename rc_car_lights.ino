@@ -15,7 +15,7 @@ bool Debug = false;
 int pinCh1 = 2;
 int pinCh2 = 3;
 int pinCh3 = 4;
-int pinVoltageMetter = A0;
+int pinVoltageMetter = 2;
 
 int pinExhaust = 8;
 int pinLights1 = 9; //this should be pwm pin
@@ -98,7 +98,10 @@ void OnEmergency(bool isOn) {
   int pins[2] = {pinLeft, pinRight};
   Blink(pins, isOn);
 }
+
 void OnLowVoltage() {
+//  HLights1Toggle(false);
+//  HLights2Toggle(false);
   OnEmergency(true);
 }
 
@@ -138,7 +141,7 @@ int NeutralHi = 1400;
 BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, 0);
 BreakReverse breakReverse = BreakReverse(breakReverseState, OnReverse, OnBreak);
 
-LowVoltageDetector lowVoltageDetector = LowVoltageDetector(6.6, OnLowVoltage);
+LowVoltageDetector lowVoltageDetector = LowVoltageDetector(6.8, OnLowVoltage);
 
 unsigned long voltage;
 unsigned long CH3;
@@ -187,7 +190,6 @@ void setup() {
   pinMode(pinCh1, INPUT);
   pinMode(pinCh2, INPUT);
   pinMode(pinCh3, INPUT);
-  pinMode(pinVoltageMetter, INPUT);
 
   if (Debug) {
     Serial.begin(9600);
@@ -204,8 +206,8 @@ void loop() {
     printDebug();
   }
 
-  if (lowVoltageDetector.evaluate(pinVoltageMetter)) {
-    OnEmergency(true);
+  if (lowVoltageDetector.evaluate(voltage)) {
+    OnLowVoltage();
 
     return;
   }
