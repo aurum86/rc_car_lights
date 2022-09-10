@@ -6,7 +6,7 @@
 #include "emergency_lights.cpp"
 #include "backfire.cpp"
 #include "break_reverse.cpp"
-#include "blinks.h"
+#include "blinker.h"
 #include "low_voltage_detector.cpp"
 
 
@@ -24,6 +24,8 @@ int pinLeft = 5;
 int pinRight = 6;
 int pinReverse = 7;
 int pinBreak = 11;
+
+Blinker turnsBlinker = Blinker();
 
 void HLights2Toggle(bool isTurnedOn) {
   int brightness = 200;
@@ -79,7 +81,7 @@ void OnBreak(bool isBreaking) {
 void Blink1(int turn = 3) {
   if (turn < 1) {
     int pins[2] = {pinLeft, pinRight};
-    Blink(pins, false);
+    turnsBlinker.Blink(pins, false);
     return;
   }
 
@@ -91,12 +93,12 @@ void Blink1(int turn = 3) {
     pins[1] = pinRight;
   }
 
-  Blink(pins, true);
+  turnsBlinker.Blink(pins, true);
 }
 
 void OnEmergency(bool isOn) {
   int pins[2] = {pinLeft, pinRight};
-  Blink(pins, isOn);
+  turnsBlinker.Blink(pins, isOn);
 }
 
 void OnLowVoltage() {
@@ -159,10 +161,6 @@ void printDebug() {
 
   Serial.print("CH3: ");
   Serial.print(CH3);
-  Serial.print("     ");
-
-  Serial.print("voltage: ");
-  Serial.print(voltage);
 
   Serial.print("\n");
   delay(100);
