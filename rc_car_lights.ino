@@ -26,6 +26,7 @@ int pinReverse = 7;
 int pinBreak = 11;
 
 Blinker turnsBlinker = Blinker();
+Blinker lowVoltageBlinker = Blinker(200, 1000);
 
 void HLights2Toggle(bool isTurnedOn) {
   int brightness = 200;
@@ -102,9 +103,8 @@ void OnEmergency(bool isOn) {
 }
 
 void OnLowVoltage() {
-//  HLights1Toggle(false);
-//  HLights2Toggle(false);
-  OnEmergency(true);
+  int pins[2] = {pinLeft, pinRight};
+  lowVoltageBlinker.Blink(pins, true);
 }
 
 void OnBackFire() {
