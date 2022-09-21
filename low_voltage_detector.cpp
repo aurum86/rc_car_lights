@@ -27,7 +27,7 @@ class LowVoltageDetector {
       
       this->averageVoltage = this->calcEMA(voltage);
       
-      if (this->averageVoltage <= this->limitVoltage)
+      if (this->averageVoltage <= this->limitVoltage && this->averageVoltage > 3.0)
       {
         this->onLowVoltage();
 

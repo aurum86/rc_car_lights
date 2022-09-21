@@ -122,6 +122,7 @@ void OnBackFire() {
   delay(250);
 }
 
+// INITIALIZATION
 int controlLo = 700;
 int controlHi = 1600;
 Headlights HLights1 = Headlights(controlLo, controlHi, HLights1Toggle);
@@ -144,6 +145,8 @@ BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, 22
 BreakReverse breakReverse = BreakReverse(breakReverseState, OnReverse, OnBreak);
 
 LowVoltageDetector lowVoltageDetector = LowVoltageDetector(6.8, OnLowVoltage);
+
+// end of INITIALIZATION
 
 unsigned long voltage;
 unsigned long CH3;
