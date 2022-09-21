@@ -3,13 +3,14 @@ typedef void (*OnReverseEvent)(bool);
 
 class BreakReverseState {
   private:
-    static const unsigned long DELAY_MS = 100;
+    static const unsigned long DELAY_MS = 200;
     unsigned long standLo;
     unsigned long standHi;
-    short breakDelay;
+    short breakTimeout;
 
     int previousState = NEUTRAL;
     unsigned long previousMillis = 0;
+    unsigned long currentStateStartedAt = 0;
   public:
     static const int NEUTRAL = 1;
     static const int FORWARDING = 2;
@@ -19,7 +20,7 @@ class BreakReverseState {
     BreakReverseState(unsigned long standLo, unsigned long standHi, short breakTimeout = 0):
       standLo(standLo),
       standHi(standHi),
-      breakDelay(breakDelay)
+      breakTimeout(breakTimeout)
     {}
 
   int getState(unsigned long throttle, unsigned long currentMillis) {
@@ -44,6 +45,14 @@ class BreakReverseState {
       if ((this->previousState == BreakReverseState::FORWARDING) || (this->previousState == BreakReverseState::BREAKING)) {
         state = BreakReverseState::BREAKING;
       }
+    }
+
+    if (this->previousState != state) {
+      this->currentStateStartedAt = currentMillis;
+    }
+
+    if (this->breakTimeout > 0 && this->currentStateStartedAt + this->breakTimeout <= currentMillis && state == BreakReverseState::BREAKING) {
+      state = BreakReverseState::REVERSING;
     }
 
     this->previousState = state;

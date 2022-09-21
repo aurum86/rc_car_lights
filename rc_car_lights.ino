@@ -140,7 +140,7 @@ BackFire backFire = BackFire(1500, OnBackFire);
 
 int NeutralLo = 1375;
 int NeutralHi = 1400;
-BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, 0);
+BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, 2200);
 BreakReverse breakReverse = BreakReverse(breakReverseState, OnReverse, OnBreak);
 
 LowVoltageDetector lowVoltageDetector = LowVoltageDetector(6.8, OnLowVoltage);
