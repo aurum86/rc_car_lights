@@ -13,10 +13,7 @@ class Headlights {
       high(high),
       onSwitch(onSwitch) {}
     void evaluate(unsigned long value) {
-      if (value < low) {
-        return;
-      }
-      bool new_status = value > high;
+      bool new_status = value < high && value > low;
       if (new_status == this->on) {
         return;
       }

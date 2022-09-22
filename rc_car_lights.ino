@@ -107,26 +107,30 @@ void OnLowVoltage() {
   lowVoltageBlinker.Blink(pins, true);
 }
 
-void OnBackFire() {
-  analogWrite(pinExhaust, 127);
+void OnBackFire(unsigned long intensity) {
+  if (intensity > 255) {
+    intensity = 255;
+  }
+
+  analogWrite(pinExhaust, intensity);
   delay(100);
   analogWrite(pinExhaust, 0);
   delay(100);
-  analogWrite(pinExhaust, 127);
+
+  analogWrite(pinExhaust, intensity);
   delay(50);
   analogWrite(pinExhaust, 0);
   delay(60);
-  analogWrite(pinExhaust, 127);
+
+  analogWrite(pinExhaust, intensity);
   delay(300);
   analogWrite(pinExhaust, 0);
   delay(250);
 }
 
 // INITIALIZATION
-int controlLo = 700;
-int controlHi = 1600;
-Headlights HLights1 = Headlights(controlLo, controlHi, HLights1Toggle);
-Headlights HLights2 = Headlights(controlLo, controlHi, HLights2Toggle);
+Headlights HLights1 = Headlights(1500, 1900, HLights1Toggle);
+Headlights HLights2 = Headlights(1600, 1900, HLights2Toggle);
 
 int turnLeftLo = 1500;
 int turnRightHi = 1460;
@@ -220,6 +224,6 @@ void loop() {
   
   HLights1.evaluate(CH3);
   HLights2.evaluate(CH3);
-//  backFire.evaluate(CH2);
+  backFire.evaluate(CH2);
   breakReverse.evaluate(CH2, millisec);
 }

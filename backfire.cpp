@@ -1,4 +1,4 @@
-typedef void (*OnFire)();
+typedef void (*OnFire)(unsigned long intensity);
 
 class BackFire {
   private:
@@ -13,8 +13,13 @@ class BackFire {
       {}
 
     void evaluate(unsigned long throttle) {
+      int intensity = (throttle - 1650) / 10;
+      if (intensity < 0) {
+        intensity = 0;
+      }
+
       if (throttle < (this->previousThrottle + 200) && (throttle > this->trottleThreshHold)) {
-        this->onFire();
+        this->onFire(intensity);
       }
       this->previousThrottle = throttle;
     }
