@@ -15,11 +15,12 @@ bool Debug = false;
 int pinCh1 = 2;
 int pinCh2 = 3;
 int pinCh3 = 4;
-int pinVoltageMetter = 2;
+int pinVoltageMetter = 7;
 
-int pinExhaust = 8;
+int pinExhaust = 12;
+int pinLightsR = 8; //rear lights
 int pinLights1 = 9; //this should be pwm pin
-int pinLights2 = 12; //this should be pwm pin
+int pinLights2 = 10; //this should be pwm pin
 int pinLeft = 5;
 int pinRight = 6;
 int pinReverse = 7;
@@ -53,10 +54,12 @@ void HLights1Toggle(bool isTurnedOn) {
   if (isTurnedOn) {
     for (int i = 0; i <= brightness; i++) {
       analogWrite(pinLights1, i);
+      analogWrite(pinLightsR, i);
       delay(2);
     }
   } else {
     for (int i = brightness; i >= 0; i--) {
+      analogWrite(pinLightsR, i);
       analogWrite(pinLights1, i);
       delay(2);
     }
@@ -174,10 +177,10 @@ void printDebug() {
 }
 
 void initDigitalOuts() {
-  int len = 7;
+  int len = 8;
 
-  int pins[7] = {
-    pinBreak, pinLights1, pinLights2,
+  int pins[len] = {
+    pinBreak, pinLightsR, pinLights1, pinLights2,
     pinLeft, pinRight, pinExhaust,
     pinReverse
   };
