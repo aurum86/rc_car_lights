@@ -12,19 +12,19 @@
 
 bool Debug = false;
 
-int pinCh1 = 2;
-int pinCh2 = 3;
-int pinCh3 = 4;
+int pinCh1 = 2; //servo
+int pinCh2 = 3; //throttle
+int pinCh3 = 4; //control
 int pinVoltageMetter = 7;
 
-int pinExhaust = 12;
-int pinLightsR = 8; //rear lights
-int pinLights1 = 9; //this should be pwm pin
+int pinExhaust = 8; //not soldered yet
+int pinLightsR = 12; //rear lights
+int pinLights1 = 11; //this should be pwm pin
 int pinLights2 = 10; //this should be pwm pin
 int pinLeft = 5;
 int pinRight = 6;
 int pinReverse = 7;
-int pinBreak = 11;
+int pinBreak = 9;
 
 Blinker turnsBlinker = Blinker();
 Blinker lowVoltageBlinker = Blinker(200, 1000);
@@ -105,7 +105,7 @@ void OnEmergency(bool isOn) {
   turnsBlinker.Blink(pins, isOn);
 }
 
-void OnLowVoltage() {
+void OnLowVoltage(float voltage) {
   int pins[2] = {pinLeft, pinRight};
   lowVoltageBlinker.Blink(pins, true);
 }
@@ -215,7 +215,7 @@ void loop() {
   }
 
   if (lowVoltageDetector.evaluate(voltage)) {
-    OnLowVoltage();
+    OnLowVoltage(0);
 
     return;
   }

@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-typedef void (*OnLowVoltageEvent)();
+typedef void (*OnLowVoltageEvent)(float);
 
 class LowVoltageDetector {
   const float ARDUINO_VOLTAGE = 5.0;
@@ -29,7 +29,7 @@ class LowVoltageDetector {
       
       if (this->averageVoltage <= this->limitVoltage && this->averageVoltage > 3.0)
       {
-        this->onLowVoltage();
+        this->onLowVoltage(this->averageVoltage);
 
         return true;
       }
