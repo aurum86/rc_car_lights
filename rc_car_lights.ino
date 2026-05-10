@@ -42,11 +42,10 @@ void HLights2Toggle(bool isTurnedOn) {
     delay(50);
     analogWrite(pinLights2, brightness);
   } else {
-    // Same total time as linear fade (201 × 20 ms), but exponential in progress:
-    // large steps down at first, then a long low-brightness tail (xenon / hot-gas look).
+    // Total fade ≈ (maxB + 1) × stepDelayMs (was 201 × 20 ms linear); exponential in progress.
     const int maxB = brightness;
     const int numSteps = maxB + 1;
-    const unsigned long stepDelayMs = 20;
+    const unsigned long stepDelayMs = 10;
     const float decay = 7.0f;
 
     for (int k = 0; k < numSteps; k++) {
