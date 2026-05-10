@@ -8,7 +8,7 @@
 #include "break_reverse.cpp"
 #include "blinker.h"
 #include "low_voltage_detector.cpp"
-
+#include "fade_curve.h"
 
 bool Debug = false;
 
@@ -42,9 +42,25 @@ void HLights2Toggle(bool isTurnedOn) {
     delay(50);
     analogWrite(pinLights2, brightness);
   } else {
-    for (int i = brightness; i >= 0; i--) {
-      analogWrite(pinLights2, i);
-      delay(20);
+    // Same total time as linear fade (201 × 20 ms), but exponential in progress:
+    // large steps down at first, then a long low-brightness tail (xenon / hot-gas look).
+    const int maxB = brightness;
+    const int numSteps = maxB + 1;
+    const unsigned long stepDelayMs = 20;
+    const float decay = 7.0f;
+
+    for (int k = 0; k < numSteps; k++) {
+      float t = (numSteps <= 1) ? 1.0f : (float)k / (float)(numSteps - 1);
+      float factor = fadeExponentialTailFactor(t, decay);
+      int level = (int)(maxB * factor + 0.5f);
+      if (level < 0) {
+        level = 0;
+      }
+      if (level > maxB) {
+        level = maxB;
+      }
+      analogWrite(pinLights2, level);
+      delay(stepDelayMs);
     }
   }
 }
