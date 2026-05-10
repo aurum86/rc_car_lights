@@ -11,6 +11,8 @@
 #include "fade_curve.h"
 
 bool Debug = false;
+// When true, skips RC logic and drives every light output steady-on for wiring checks.
+bool Troubleshoot = false;
 
 int pinCh1 = 2; //servo
 int pinCh2 = 3; //throttle
@@ -207,6 +209,18 @@ void initDigitalOuts() {
   }
 }
 
+// Steady levels matching the brightest values used in normal operation (see HLights1Toggle, HLights2Toggle, OnReverse, OnBreak, Blinker).
+void applyTroubleshootAllLightsOn() {
+  analogWrite(pinLights1, 150);
+  analogWrite(pinLightsR, 150);
+  analogWrite(pinLights2, 200);
+  analogWrite(pinLeft, 255);
+  analogWrite(pinRight, 255);
+  analogWrite(pinReverse, 180);
+  analogWrite(pinBreak, 255);
+  analogWrite(pinExhaust, 0);
+}
+
 void setup() {
   initDigitalOuts();
 
@@ -220,6 +234,11 @@ void setup() {
 }
 
 void loop() {
+  if (Troubleshoot) {
+    applyTroubleshootAllLightsOn();
+    return;
+  }
+
   CH1 = pulseIn(pinCh1, HIGH);
   CH2 = pulseIn(pinCh2, HIGH);
   CH3 = pulseIn(pinCh3, HIGH);
