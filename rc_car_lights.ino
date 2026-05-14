@@ -114,6 +114,14 @@ void Blink1(int turn = 3) {
     pins[1] = pinRight;
   }
 
+  // Blinker only writes pins listed as >= 0. After a fast L↔R change the
+  // inactive side keeps its last PWM level unless we clear it here.
+  if (turn == 1) {
+    analogWrite(pinRight, 0);
+  } else if (turn == 2) {
+    analogWrite(pinLeft, 0);
+  }
+
   turnsBlinker.Blink(pins, true);
 }
 
