@@ -2,8 +2,12 @@ typedef void (*OnFire)(unsigned long intensity);
 
 class BackFire {
   private:
-    unsigned long previousThrottle = 0;
+    static const unsigned long COOLDOWN_MS = 350;
+    static const unsigned long MIN_DELTA_US = 25;
+
+    unsigned long previousThrottle = 1375;
     unsigned long trottleThreshHold;
+    unsigned long lastFireMs = 0;
 
     OnFire onFire;
   public:
@@ -12,15 +16,25 @@ class BackFire {
       onFire(onFire)
       {}
 
-    void evaluate(unsigned long throttle) {
-      int intensity = (throttle - 1650) / 10;
-      if (intensity < 0) {
-        intensity = 0;
+    void evaluate(unsigned long throttle, unsigned long nowMs) {
+      long delta = (long)throttle - (long)this->previousThrottle;
+
+      if (delta >= MIN_DELTA_US
+          && throttle > this->trottleThreshHold
+          && (nowMs - this->lastFireMs) >= COOLDOWN_MS) {
+
+        int intensity = (int)((throttle - this->trottleThreshHold) / 2);
+        if (intensity > 255) {
+          intensity = 255;
+        }
+        if (intensity < 1) {
+          intensity = 1;
+        }
+
+        this->onFire((unsigned long)intensity);
+        this->lastFireMs = nowMs;
       }
 
-      if (throttle < (this->previousThrottle + 200) && (throttle > this->trottleThreshHold)) {
-        this->onFire(intensity);
-      }
       this->previousThrottle = throttle;
     }
 };

@@ -21,8 +21,8 @@ int pinVoltageMetter = 7;
 
 int pinExhaust = 8; //not soldered yet
 int pinLightsR = 12; //rear lights
-int pinLights1 = 11; //this should be pwm pin
-int pinLights2 = 10; //this should be pwm pin
+int pinLights1 = 11; //daylight rear, this should be pwm pin
+int pinLights2 = 10; //xenon, this should be pwm pin
 int pinLeft = 5;
 int pinRight = 6;
 int pinReverse = 7;
@@ -140,20 +140,40 @@ void OnBackFire(unsigned long intensity) {
     intensity = 255;
   }
 
-  analogWrite(pinExhaust, intensity);
-  delay(100);
-  analogWrite(pinExhaust, 0);
-  delay(100);
+  // D8 has no hardware PWM — intensity drives pop count and timing, not brightness.
+  int pops = 1;
+  if (intensity > 70) {
+    pops = 2;
+  }
+  if (intensity > 160) {
+    pops = 3;
+  }
+  if (intensity > 220 && random(0, 100) < 35) {
+    pops = 4;
+  }
 
-  analogWrite(pinExhaust, intensity);
-  delay(50);
-  analogWrite(pinExhaust, 0);
-  delay(60);
+  for (int i = 0; i < pops; i++) {
+    analogWrite(pinExhaust, 255);
 
-  analogWrite(pinExhaust, intensity);
-  delay(300);
-  analogWrite(pinExhaust, 0);
-  delay(250);
+    unsigned long flashMs = 10 + intensity / 20;
+    if (flashMs > 30) {
+      flashMs = 30;
+    }
+    if (i > 0) {
+      flashMs = flashMs * 3 / 4;
+    }
+    delay(flashMs);
+
+    analogWrite(pinExhaust, 0);
+
+    if (i < pops - 1) {
+      unsigned long gapMs = 20 + (unsigned long)random(0, 45);
+      if (intensity > 180) {
+        gapMs = gapMs * 2 / 3;
+      }
+      delay(gapMs);
+    }
+  }
 }
 
 // INITIALIZATION
@@ -269,6 +289,6 @@ void loop() {
   
   HLights1.evaluate(CH3);
   HLights2.evaluate(CH3);
-  backFire.evaluate(CH2);
+  backFire.evaluate(CH2, millisec);
   breakReverse.evaluate(CH2, millisec);
 }
