@@ -50,7 +50,7 @@ Between **1200** and **1500** µs, **none** of these CH3-driven lighting/emergen
 
 ## Backfire (exhaust) — CH2 throttle timing
 
-The exhaust LED on **D8** (`pinExhaust`) is driven by `BackFire` in `backfire.cpp`, which runs once per `loop()` after each CH2 `pulseIn`. It is meant to mimic a brief exhaust **pop** when you **snap the throttle forward**, not a steady glow while you hold speed. Each pass compares the current throttle pulse width to the previous sample: if CH2 has risen by at least **25 µs** (`MIN_DELTA_US`), the pulse is above the forward threshold (**1500 µs**, `BackFire(1500, …)` in `rc_car_lights.ino`), and at least **350 ms** have passed since the last pop (`COOLDOWN_MS`), `OnBackFire` runs. Intensity is derived from how far above threshold you are: `(throttle − 1500) / 2`, clamped to **1…255**. Higher throttle at the moment of the snap yields more pops and slightly longer flashes; because D8 has no hardware PWM, brightness is always full ON and “intensity” only changes **pop count** and **timing** (see PWM note below). Releasing throttle, holding steady forward, or creeping up in tiny steps below 25 µs per loop does not retrigger until you accelerate again and the cooldown expires.
+The exhaust LED on **D7** (`pinExhaust`) is driven by `BackFire` in `backfire.cpp`, which runs once per `loop()` after each CH2 `pulseIn`. It is meant to mimic a brief exhaust **pop** when you **snap the throttle forward**, not a steady glow while you hold speed. Each pass compares the current throttle pulse width to the previous sample: if CH2 has risen by at least **25 µs** (`MIN_DELTA_US`), the pulse is above the forward threshold (**1500 µs**, `BackFire(1500, …)` in `rc_car_lights.ino`), and at least **350 ms** have passed since the last pop (`COOLDOWN_MS`), `OnBackFire` runs. Intensity is derived from how far above threshold you are: `(throttle − 1500) / 2`, clamped to **1…255**. Higher throttle at the moment of the snap yields more pops and slightly longer flashes; because D7 has no hardware PWM, brightness is always full ON and “intensity” only changes **pop count** and **timing** (see PWM note below). Releasing throttle, holding steady forward, or creeping up in tiny steps below 25 µs per loop does not retrigger until you accelerate again and the cooldown expires.
 
 ### CH2 regions relevant to backfire
 
@@ -101,7 +101,7 @@ Example: a throttle hit from neutral to mid-forward in one loop (large Δ) fires
 
 ### Intensity → exhaust pattern
 
-`OnBackFire` plays a short burst of full-on flashes on D8 (gaps use `random()` for variation).
+`OnBackFire` plays a short burst of full-on flashes on D7 (gaps use `random()` for variation).
 
 
 | Intensity (from CH2) | Approx. CH2 at snap | Pops   | Notes                             |
@@ -113,7 +113,7 @@ Example: a throttle hit from neutral to mid-forward in one loop (large Δ) fires
 
 
 ```
-  D8 (exhaust LED)
+  D7 (exhaust LED)
   ON  ┤ ████░░░░░████░░░░░████░░░████   ← more pops + shorter gaps at high intensity
   OFF ┤     ░░░     ░░░     ░░   ░
       └─┬───┬───┬───┬───┬───┬───┬───► time
@@ -131,7 +131,7 @@ flowchart LR
   BF["BackFire.evaluate"]
   CH2 --> BF
   BF -->|"Δ ≥ 25 ∧ CH2 > 1500 ∧ cooldown OK"| OF["OnBackFire(intensity)"]
-  OF --> LED["D8 full ON/OFF pop pattern"]
+  OF --> LED["D7 full ON/OFF pop pattern"]
 ```
 
 
@@ -147,8 +147,8 @@ flowchart LR
 | **A7**        | `pinVoltageMetter` | Analog in    | Battery sense (**not** D7 — see below)           |
 | **D5**        | `pinLeft`          | Output (PWM) | Left turn                                        |
 | **D6**        | `pinRight`         | Output (PWM) | Right turn                                       |
-| **D7**        | `pinReverse`       | Output       | Reverse lamp drive (`analogWrite`; see PWM note) |
-| **D8**        | `pinExhaust`       | Output       | “Backfire” / exhaust LED                         |
+| **D7**        | `pinExhaust`       | Output       | “Backfire” / exhaust LED                         |
+| **D8**        | `pinReverse`       | Output       | Reverse lamp drive (`analogWrite`; see PWM note) |
 | **D9**        | `pinBreak`         | Output (PWM) | Brake lamp                                       |
 | **D10**       | `pinLights2`       | Output (PWM) | “Xenon” channel (blink on/off)                   |
 | **D11**       | `pinLights1`       | Output (PWM) | Daylight fade with rear                          |
@@ -157,7 +157,7 @@ flowchart LR
 
 ### Analog channel vs digital pin 7
 
-On the Nano, `**analogRead(7)` reads physical pin A7** (ADC channel 7). `**pinReverse` uses digital D7**. They are different pins; do not tie battery sense to D7.
+On the Nano, `**analogRead(7)` reads physical pin A7** (ADC channel 7). `**pinExhaust` uses digital D7**. They are different pins; do not tie battery sense to D7.
 
 ### PWM behavior
 

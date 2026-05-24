@@ -19,13 +19,13 @@ int pinCh2 = 3; //throttle
 int pinCh3 = 4; //control
 int pinVoltageMetter = 7;
 
-int pinExhaust = 8; //not soldered yet
+int pinExhaust = 7; //not soldered yet
 int pinLightsR = 12; //rear lights
 int pinLights1 = 11; //daylight rear, this should be pwm pin
 int pinLights2 = 10; //xenon, this should be pwm pin
 int pinLeft = 5;
 int pinRight = 6;
-int pinReverse = 7;
+int pinReverse = 8;
 int pinBreak = 9;
 
 Blinker turnsBlinker = Blinker();
@@ -140,7 +140,7 @@ void OnBackFire(unsigned long intensity) {
     intensity = 255;
   }
 
-  // D8 has no hardware PWM — intensity drives pop count and timing, not brightness.
+  // D7 has no hardware PWM — intensity drives pop count and timing, not brightness.
   int pops = 1;
   if (intensity > 70) {
     pops = 2;
