@@ -14,19 +14,31 @@ bool Debug = false;
 // When true, skips RC logic and drives every light output steady-on for wiring checks.
 bool Troubleshoot = false;
 
+static const unsigned long RC_PULSE_TIMEOUT_US = 25000UL;
+static const unsigned long RC_PULSE_MIN_VALID_US = 900UL;
+static const unsigned long RC_PULSE_MAX_VALID_US = 2100UL;
+
+static bool isValidRcPulse(unsigned long pulseUs) {
+  return pulseUs >= RC_PULSE_MIN_VALID_US && pulseUs <= RC_PULSE_MAX_VALID_US;
+}
+
 int pinCh1 = 2; //servo
 int pinCh2 = 3; //throttle
 int pinCh3 = 4; //control
 int pinVoltageMetter = 7;
 
-int pinExhaust = 7; //not soldered yet
+// D7 exhaust, D8 brake, D9 reverse (see doc/nano_pcb_topology_recommendation.md).
+int pinExhaust = 7;
+int pinBreak = 8;
+int pinReverse = 9;
+
+// Brake works with HIGH = lamp on; if reverse stays on at idle, set this true (inverted driver).
+const bool REVERSE_LED_ACTIVE_LOW = true;
 int pinLightsR = 12; //rear lights
 int pinLights1 = 11; //daylight rear, this should be pwm pin
 int pinLights2 = 10; //xenon, this should be pwm pin
 int pinLeft = 5;
 int pinRight = 6;
-int pinReverse = 8;
-int pinBreak = 9;
 
 Blinker turnsBlinker = Blinker();
 Blinker lowVoltageBlinker = Blinker(200, 1000);
@@ -83,20 +95,17 @@ void HLights1Toggle(bool isTurnedOn) {
   }
 }
 
-void OnReverse(bool isReversing) {  
-  if (isReversing) {
-    analogWrite(pinReverse, 180);
-  } else {
-    analogWrite(pinReverse, 0);
-  }
+static void setReverseLamp(bool on) {
+  bool levelHigh = on ? !REVERSE_LED_ACTIVE_LOW : REVERSE_LED_ACTIVE_LOW;
+  digitalWrite(pinReverse, levelHigh ? HIGH : LOW);
+}
+
+void OnReverse(bool isReversing) {
+  setReverseLamp(isReversing);
 }
 
 void OnBreak(bool isBreaking) {
-  if (isBreaking) {
-    analogWrite(pinBreak, 255);
-  } else {
-    analogWrite(pinBreak, 0);
-  }
+  digitalWrite(pinBreak, isBreaking ? HIGH : LOW);
 }
 
 void Blink1(int turn = 3) {
@@ -191,8 +200,9 @@ EmergencyLights emergencyLightsWithDaylights = EmergencyLights(1700, 1900, OnEme
 
 BackFire backFire = BackFire(1500, OnBackFire);
 
-int NeutralLo = 1375;
-int NeutralHi = 1400;
+// Brake/reverse bands (Sanwa RX472–style, calibrated): reverse ≤1370, neutral 1370–1390, forward ≥1390.
+int NeutralLo = 1370;
+int NeutralHi = 1390;
 BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, 2200);
 BreakReverse breakReverse = BreakReverse(breakReverseState, OnReverse, OnBreak);
 
@@ -235,6 +245,7 @@ void initDigitalOuts() {
     pinMode(pin, OUTPUT);
     digitalWrite(pin, LOW);
   }
+  setReverseLamp(false);
 }
 
 // Steady levels matching the brightest values used in normal operation (see HLights1Toggle, HLights2Toggle, OnReverse, OnBreak, Blinker).
@@ -244,8 +255,8 @@ void applyTroubleshootAllLightsOn() {
   analogWrite(pinLights2, 200);
   analogWrite(pinLeft, 255);
   analogWrite(pinRight, 255);
-  analogWrite(pinReverse, 180);
-  analogWrite(pinBreak, 255);
+  setReverseLamp(true);
+  digitalWrite(pinBreak, HIGH);
   analogWrite(pinExhaust, 0);
 }
 
@@ -267,9 +278,9 @@ void loop() {
     return;
   }
 
-  CH1 = pulseIn(pinCh1, HIGH);
-  CH2 = pulseIn(pinCh2, HIGH);
-  CH3 = pulseIn(pinCh3, HIGH);
+  CH1 = pulseIn(pinCh1, HIGH, RC_PULSE_TIMEOUT_US);
+  CH2 = pulseIn(pinCh2, HIGH, RC_PULSE_TIMEOUT_US);
+  CH3 = pulseIn(pinCh3, HIGH, RC_PULSE_TIMEOUT_US);
   voltage = analogRead(pinVoltageMetter);
 
   if (Debug) {
@@ -278,7 +289,8 @@ void loop() {
 
   if (lowVoltageDetector.evaluate(voltage)) {
     OnLowVoltage(0);
-
+    OnReverse(false);
+    OnBreak(false);
     return;
   }
 
@@ -290,5 +302,11 @@ void loop() {
   HLights1.evaluate(CH3);
   HLights2.evaluate(CH3);
   backFire.evaluate(CH2, millisec);
-  breakReverse.evaluate(CH2, millisec);
+
+  if (isValidRcPulse(CH2)) {
+    breakReverse.evaluate(CH2, millisec);
+  } else {
+    OnReverse(false);
+    OnBreak(false);
+  }
 }

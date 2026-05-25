@@ -6,7 +6,7 @@ Firmware for an **Arduino Nano** (ATmega328P-class) that reads up to three RC re
 
 Each `loop()` iteration:
 
-1. **Inputs** — `pulseIn(..., HIGH)` on D2, D3, and D4 captures the high pulse width of each channel (microseconds). Battery is read with `analogRead(7)` (see pin note below).
+1. **Inputs** — `pulseIn(..., HIGH, 25000)` on D2, D3, and D4 captures the high pulse width of each channel (microseconds). Battery is read with `analogRead(7)` (see pin note below). Invalid CH2 pulses skip brake/reverse logic (see brake/reverse section).
 2. **Low voltage** — If `LowVoltageDetector` decides the smoothed pack voltage is below the limit (default **6.8 V**, tuned for **2S** with a **÷2** divider), it flashes the turn outputs at ~1 Hz and **skips** all other logic for that pass.
 3. **Otherwise** — Emergency modes on CH3 can force hazard-style blinking on the turn pins. If neither emergency band is active, **turn signals** use CH1 (steering) and CH2 (throttle) with a **3 s** dwell after throttle returns to “neutral.” **Headlights** (two behaviors), **backfire** exhaust pulse, and **brake / reverse** are derived from CH2 and CH3 thresholds defined in `rc_car_lights.ino`.
 
@@ -54,16 +54,15 @@ The exhaust LED on **D7** (`pinExhaust`) is driven by `BackFire` in `backfire.cp
 
 ### CH2 regions relevant to backfire
 
-Brake/reverse uses neutral **1375…1400 µs**; backfire only arms above **1500 µs** (well into forward travel).
+Brake/reverse uses **`NeutralLo` / `NeutralHi`** (**1370 / 1390 µs** in `rc_car_lights.ino`); backfire only arms above **1500 µs** (well into forward travel).
 
 ```
-      reverse / brake          neutral           forward (backfire zone)
+      reverse / brake          neutral (BR)        forward (backfire zone)
     ◄──────────────────► ◄────────────► ◄──────────────────────────────►
-    1000              1375        1400   1500                          1900+
+    1000              1370        1390   1500                          1900+
          │                │           │      │                              │
-         │                ├───────────┤      │◄── threshold: pops allowed ──►│
-         │                │  stand    │      │
-         │                │  (BR)     │      │
+         │                ├───────────┤      │◄── BackFire threshold ───────►│
+         │                │ NeutralLo/Hi   │
     ─────┴────────────────┴───────────┴──────┴──────────────────────────────► CH2 (µs)
 ```
 
@@ -92,8 +91,8 @@ Example: a throttle hit from neutral to mid-forward in one loop (large Δ) fires
   1900 ┤                              ╭────────────  hold: Δ≈0, no new pop
   1800 ┤                         ╭────╯
   1500 ┤ - - - - - - - - - - - - ┼ - - - - - - - - -  threshold
-  1400 ┤         neutral ═══════╪
-  1380 ┤    ════════╯           │
+  1390 ┤         neutral ═══════╪
+  1370 ┤    ════════╯           │
        └────────────────────────┴──────────────────► time / loop iterations
               snap ↑              COOLDOWN (350 ms) before next snap can pop
               pop *               (only if Δ ≥ 25 µs again)
@@ -134,7 +133,25 @@ flowchart LR
   OF --> LED["D7 full ON/OFF pop pattern"]
 ```
 
+## Brake and reverse lights — CH2 throttle logic
 
+Each `loop()`, after a valid CH2 pulse is captured (`pulseIn` on **D3** with a **25 ms** timeout; pulses outside **900…2100 µs** are ignored and both brake and reverse outputs are forced off), `BreakReverse` in `break_reverse.cpp` classifies throttle into three bands using `NeutralLo` / `NeutralHi` from `rc_car_lights.ino` (calibrated **1370** and **1390 µs**, open interval on neutral): **reverse** when `CH2 ≤ 1370`, **neutral** when `1370 < CH2 < 1390`, **forward** when `CH2 ≥ 1390`. Set `REVERSE_LED_ACTIVE_LOW` in `rc_car_lights.ino` if the reverse channel uses an inverted driver (brake on **D8** uses `HIGH` = on). The brake lamp (**D8**) and reverse lamp (**D9**) follow this state machine so the lights *mimic* common ESC “brake before reverse” behavior using only the receiver throttle PWM.
+
+After the stick has been in **forward**, pulling below `NeutralHi` starts a **brake session**: brake ON while CH2 stays below forward and outside the idle window at the top of the neutral band (`CH2 ≥ NeutralHi − 25` inside neutral ends the session). Returning to **forward** (`CH2 ≥ NeutralHi`) turns the brake off. From **forward** into the **reverse** band, the firmware enters **BREAKING** first (brake ON, reverse OFF). If the stick stays in reverse for longer than `breakTimeout` (default **2200 ms**), the state becomes **REVERSING** (brake OFF, reverse ON). A latch keeps reverse lights stable across brief noise until neutral or **400 ms** outside the reverse band. `OnReverse` and `OnBreak` each drive only their own pin. State updates use **50 ms** debounce only while CH2 stays in the same band; band changes apply immediately so fast FWD→brake snaps are not missed. From **neutral** straight into reverse (no prior forward), reverse lights can turn on without a brake phase.
+
+That model aligns in spirit with how many car ESCs behave in **“Forward/Reverse with Brake”** mode, but it is **not** a byte-for-byte copy of ESC firmware. Manufacturer docs (e.g. Hobbywing, Speed Passion Reventon, RC4WD Outcry) describe a **double-tap** or **neutral-wait** sequence: the first pull into the brake/reverse side of the stick applies **braking only**; actual reverse often requires a **second** tap or returning to **neutral** until a **reverse delay** elapses (Tekin’s default **Forward/Brake with Reverse Delay** is about **0.75 s** at neutral, programmable roughly **0–2 s**; ArduPilot rover notes often cite ~**0.3 s** as a typical minimum). Many ESCs also refuse reverse until the motor has **stopped**. This project instead uses a **single** continuous reverse-band reading after forward travel, a **fixed 2.2 s** brake-hold timer (`breakTimeout`), and does **not** require passing through neutral or a second trigger—so brake/reverse **LED timing can differ** from when the ESC actually applies reverse torque, especially if the ESC delay is reprogrammed or the car is still coasting. Adjust `NeutralLo`, `NeutralHi`, and `breakTimeout` in the INITIALIZATION section of `rc_car_lights.ino` to match your receiver endpoints and how long you want brake lights before reverse lights; use `Debug` and Serial at **9600 baud** to read live CH2 values while moving the stick through neutral, forward, and reverse.
+
+```
+  CH2 stick ──►  FORWARD (≥1390) ──► pull to reverse (≤1370)
+                      │                      │
+                      │                      ▼
+                      │              BREAKING (brake LED, ~breakTimeout)
+                      │                      │
+                      │                      ▼ (timer expired, still in reverse band)
+                      │              REVERSING (reverse LED)
+                      │
+  NEUTRAL (1370…1390) ──► reverse band ──► REVERSING immediately (no brake phase)
+```
 
 ## Pin assignment (as in `rc_car_lights.ino`)
 
@@ -148,8 +165,8 @@ flowchart LR
 | **D5**        | `pinLeft`          | Output (PWM) | Left turn                                        |
 | **D6**        | `pinRight`         | Output (PWM) | Right turn                                       |
 | **D7**        | `pinExhaust`       | Output       | “Backfire” / exhaust LED                         |
-| **D8**        | `pinReverse`       | Output       | Reverse lamp drive (`analogWrite`; see PWM note) |
-| **D9**        | `pinBreak`         | Output (PWM) | Brake lamp                                       |
+| **D8**        | `pinBreak`         | Output (PWM) | Brake lamp                                       |
+| **D9**        | `pinReverse`       | Output (PWM) | Reverse lamp (`digitalWrite`; see PWM note)      |
 | **D10**       | `pinLights2`       | Output (PWM) | “Xenon” channel (blink on/off)                   |
 | **D11**       | `pinLights1`       | Output (PWM) | Daylight fade with rear                          |
 | **D12**       | `pinLightsR`       | Output       | Rear red / tail (faded with D11 in software)     |
@@ -171,7 +188,21 @@ Hardware PWM on the Nano: **D5, D6, D9, D10, D11** (and D3 if unused). **D7, D8,
 
 ## Calibration
 
-Pulse width thresholds (`Headlights`, `Turns`, `EmergencyLights`, `BackFire`, `BreakReverseState`, `LowVoltageDetector`) are set for a **Sanwa RX472**-style channel timing. Set `Debug` to `true`, use **9600 baud** Serial, and adjust the constants in the `INITIALIZATION` section of `rc_car_lights.ino` if your receiver’s neutral and endpoints differ.
+Pulse width thresholds are tuned for a **Sanwa RX472**-style receiver. Set `Debug` to `true`, use **9600 baud** Serial, and adjust values in the **INITIALIZATION** section of `rc_car_lights.ino` if your endpoints differ.
+
+### CH2 throttle constants (as calibrated in firmware)
+
+
+| Constant | Value (µs) | Used by | Meaning |
+| -------- | -----------: | ------- | ------- |
+| `NeutralLo` | **1370** | `BreakReverse` | Reverse band: `CH2 ≤ NeutralLo` |
+| `NeutralHi` | **1390** | `BreakReverse` | Forward band: `CH2 ≥ NeutralHi`; between Lo and Hi = neutral |
+| `breakTimeout` | **2200** (ms) | `BreakReverse` | Brake LED duration in reverse band before reverse LED |
+| `throttleLo` | **1350** | `Turns` | Turn signals: throttle must be above this |
+| `throttleHi` | **1450** | `Turns` | Turn signals: throttle must be below this (3 s dwell) |
+| `BackFire(1500, …)` | **1500** | `BackFire` | Exhaust pop when CH2 rises above this |
+
+`NeutralLo` / `NeutralHi` and `throttleLo` / `throttleHi` are separate on purpose: brake/reverse vs turn-signal “standstill” gating. Align them with debug readings if your transmitter differs.
 
 ## Dependencies
 
