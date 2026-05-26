@@ -50,7 +50,7 @@ Between **1200** and **1500** µs, **none** of these CH3-driven lighting/emergen
 
 ## Backfire (exhaust) — CH2 throttle timing
 
-The exhaust LED on **D7** (`pinExhaust`) is driven by `BackFire` in `backfire.cpp`, which runs once per `loop()` after each CH2 `pulseIn`. It is meant to mimic a brief exhaust **pop** when you **snap the throttle forward**, not a steady glow while you hold speed. Each pass compares the current throttle pulse width to the previous sample: if CH2 has risen by at least **25 µs** (`MIN_DELTA_US`), the pulse is above the forward threshold (**1500 µs**, `BackFire(1500, …)` in `rc_car_lights.ino`), and at least **350 ms** have passed since the last pop (`COOLDOWN_MS`), `OnBackFire` runs. Intensity is derived from how far above threshold you are: `(throttle − 1500) / 2`, clamped to **1…255**. Higher throttle at the moment of the snap yields more pops and slightly longer flashes; because D7 has no hardware PWM, brightness is always full ON and “intensity” only changes **pop count** and **timing** (see PWM note below). Releasing throttle, holding steady forward, or creeping up in tiny steps below 25 µs per loop does not retrigger until you accelerate again and the cooldown expires.
+The exhaust LED on **D9** (`pinExhaust`) is driven by `BackFire` in `backfire.cpp`, which runs once per `loop()` after each CH2 `pulseIn`. It is meant to mimic a brief exhaust **pop** when you **snap the throttle forward**, not a steady glow while you hold speed. Each pass compares the current throttle pulse width to the previous sample: if CH2 has risen by at least **25 µs** (`MIN_DELTA_US`), the pulse is above the forward threshold (**1500 µs**, `BackFire(1500, …)` in `rc_car_lights.ino`), and at least **350 ms** have passed since the last pop (`COOLDOWN_MS`), `OnBackFire` runs. Intensity is derived from how far above threshold you are: `(throttle − 1500) / 2`, clamped to **1…255**. Higher throttle at the moment of the snap yields more pops and slightly longer flashes; because the firmware drives the exhaust output full ON then OFF (no brightness ramp), brightness is always full ON/OFF and “intensity” only changes **pop count** and **timing** (see PWM note below). Releasing throttle, holding steady forward, or creeping up in tiny steps below 25 µs per loop does not retrigger until you accelerate again and the cooldown expires.
 
 ### CH2 regions relevant to backfire
 
@@ -100,7 +100,7 @@ Example: a throttle hit from neutral to mid-forward in one loop (large Δ) fires
 
 ### Intensity → exhaust pattern
 
-`OnBackFire` plays a short burst of full-on flashes on D7 (gaps use `random()` for variation).
+`OnBackFire` plays a short burst of full-on flashes on D9 (gaps use `random()` for variation).
 
 
 | Intensity (from CH2) | Approx. CH2 at snap | Pops   | Notes                             |
@@ -112,7 +112,7 @@ Example: a throttle hit from neutral to mid-forward in one loop (large Δ) fires
 
 
 ```
-  D7 (exhaust LED)
+  D9 (exhaust LED)
   ON  ┤ ████░░░░░████░░░░░████░░░████   ← more pops + shorter gaps at high intensity
   OFF ┤     ░░░     ░░░     ░░   ░
       └─┬───┬───┬───┬───┬───┬───┬───► time
@@ -130,12 +130,12 @@ flowchart LR
   BF["BackFire.evaluate"]
   CH2 --> BF
   BF -->|"Δ ≥ 25 ∧ CH2 > 1500 ∧ cooldown OK"| OF["OnBackFire(intensity)"]
-  OF --> LED["D7 full ON/OFF pop pattern"]
+  OF --> LED["D9 full ON/OFF pop pattern"]
 ```
 
 ## Brake and reverse lights — CH2 throttle logic
 
-Each `loop()`, after a valid CH2 pulse is captured (`pulseIn` on **D3** with a **25 ms** timeout; pulses outside **900…2100 µs** are ignored and both brake and reverse outputs are forced off), `BreakReverse` in `break_reverse.cpp` classifies throttle into three bands using `NeutralLo` / `NeutralHi` from `rc_car_lights.ino` (calibrated **1370** and **1390 µs**, open interval on neutral): **reverse** when `CH2 ≤ 1370`, **neutral** when `1370 < CH2 < 1390`, **forward** when `CH2 ≥ 1390`. Set `REVERSE_LED_ACTIVE_LOW` in `rc_car_lights.ino` if the reverse channel uses an inverted driver (brake on **D8** uses `HIGH` = on). The brake lamp (**D8**) and reverse lamp (**D9**) follow this state machine so the lights *mimic* common ESC “brake before reverse” behavior using only the receiver throttle PWM.
+Each `loop()`, after a valid CH2 pulse is captured (`pulseIn` on **D3** with a **25 ms** timeout; pulses outside **900…2100 µs** are ignored and both brake and reverse outputs are forced off), `BreakReverse` in `break_reverse.cpp` classifies throttle into three bands using `NeutralLo` / `NeutralHi` from `rc_car_lights.ino` (calibrated **1370** and **1390 µs**, open interval on neutral): **reverse** when `CH2 ≤ 1370`, **neutral** when `1370 < CH2 < 1390`, **forward** when `CH2 ≥ 1390`. Set `REVERSE_LED_ACTIVE_LOW` in `rc_car_lights.ino` if the reverse channel uses an inverted driver (brake on **D8** uses `HIGH` = on). The brake lamp (**D8**) and reverse lamp (**D7**) follow this state machine so the lights *mimic* common ESC “brake before reverse” behavior using only the receiver throttle PWM.
 
 After the stick has been in **forward**, pulling below `NeutralHi` starts a **brake session**: brake ON while CH2 stays below forward and outside the idle window at the top of the neutral band (`CH2 ≥ NeutralHi − 25` inside neutral ends the session). Returning to **forward** (`CH2 ≥ NeutralHi`) turns the brake off. From **forward** into the **reverse** band, the firmware enters **BREAKING** first (brake ON, reverse OFF). If the stick stays in reverse for longer than `breakTimeout` (default **2200 ms**), the state becomes **REVERSING** (brake OFF, reverse ON). A latch keeps reverse lights stable across brief noise until neutral or **400 ms** outside the reverse band. `OnReverse` and `OnBreak` each drive only their own pin. State updates use **50 ms** debounce only while CH2 stays in the same band; band changes apply immediately so fast FWD→brake snaps are not missed. From **neutral** straight into reverse (no prior forward), reverse lights can turn on without a brake phase.
 
@@ -164,9 +164,9 @@ That model aligns in spirit with how many car ESCs behave in **“Forward/Revers
 | **A7**        | `pinVoltageMetter` | Analog in    | Battery sense (**not** D7 — see below)           |
 | **D5**        | `pinLeft`          | Output (PWM) | Left turn                                        |
 | **D6**        | `pinRight`         | Output (PWM) | Right turn                                       |
-| **D7**        | `pinExhaust`       | Output       | “Backfire” / exhaust LED                         |
-| **D8**        | `pinBreak`         | Output (PWM) | Brake lamp                                       |
-| **D9**        | `pinReverse`       | Output (PWM) | Reverse lamp (`digitalWrite`; see PWM note)      |
+| **D7**        | `pinReverse`       | Output       | Reverse lamp (`digitalWrite`; see PWM note)      |
+| **D8**        | `pinBreak`         | Output       | Brake lamp (`digitalWrite`; HIGH = on)           |
+| **D9**        | `pinExhaust`       | Output       | “Backfire” / exhaust LED                         |
 | **D10**       | `pinLights2`       | Output (PWM) | “Xenon” channel (blink on/off)                   |
 | **D11**       | `pinLights1`       | Output (PWM) | Daylight fade with rear                          |
 | **D12**       | `pinLightsR`       | Output       | Rear red / tail (faded with D11 in software)     |
@@ -174,7 +174,7 @@ That model aligns in spirit with how many car ESCs behave in **“Forward/Revers
 
 ### Analog channel vs digital pin 7
 
-On the Nano, `**analogRead(7)` reads physical pin A7** (ADC channel 7). `**pinExhaust` uses digital D7**. They are different pins; do not tie battery sense to D7.
+On the Nano, `**analogRead(7)` reads physical pin A7** (ADC channel 7). `**pinReverse` uses digital D7**. They are different pins; do not tie battery sense to D7.
 
 ### PWM behavior
 

@@ -28,9 +28,9 @@ int pinCh3 = 4; //control
 int pinVoltageMetter = 7;
 
 // D7 exhaust, D8 brake, D9 reverse (see doc/nano_pcb_topology_recommendation.md).
-int pinExhaust = 7;
+int pinExhaust = 9;
 int pinBreak = 8;
-int pinReverse = 9;
+int pinReverse = 7;
 
 // Brake works with HIGH = lamp on; if reverse stays on at idle, set this true (inverted driver).
 const bool REVERSE_LED_ACTIVE_LOW = true;
@@ -191,8 +191,8 @@ Headlights HLights2 = Headlights(1600, 1900, HLights2Toggle);
 
 int turnLeftLo = 1500;
 int turnRightHi = 1460;
-int throttleLo = 1350;
-int throttleHi = 1450;
+int throttleLo = 1370;
+int throttleHi = 1390;
 Turns turns = Turns(turnLeftLo, turnRightHi, throttleLo, throttleHi, Blink1);
 
 EmergencyLights emergencyLights = EmergencyLights(1000, 1200, OnEmergency);
