@@ -10,9 +10,9 @@
 #include "low_voltage_detector.cpp"
 #include "fade_curve.h"
 
-bool Debug = true;
+bool Debug = false;
 // true = tab-separated label:value lines for Tools → Serial Plotter (numeric traces only).
-bool DebugPlotter = true;
+bool DebugPlotter = false;
 // Serial + printDebug() block the loop; rate-limit so RC sampling and brake logic stay stable.
 static const unsigned long DEBUG_PRINT_INTERVAL_MS = 100;
 static unsigned long lastDebugPrintMs = 0;
@@ -32,7 +32,7 @@ int pinCh2 = 3; //throttle
 int pinCh3 = 4; //control
 int pinVoltageMetter = 7;
 
-// D7 exhaust, D8 brake, D9 reverse (see doc/nano_pcb_topology_recommendation.md).
+// D7 reverse, D8 brake, D9 exhaust (see doc/nano_pcb_topology_recommendation.md).
 int pinExhaust = 9;
 int pinBreak = 8;
 int pinReverse = 7;
@@ -206,10 +206,10 @@ EmergencyLights emergencyLightsWithDaylights = EmergencyLights(1700, 1900, OnEme
 BackFire backFire = BackFire(1500, OnBackFire);
 
 // Brake/reverse zones (doc/brake_reverse_spec.md): shared ≤1370, neutral 1371–1389, forward ≥1390.
-int NeutralLo = 1375;
+int NeutralLo = 1370;
 int NeutralHi = 1400;
 // After forward only: brake lamp duration in shared range before reverse (idle→back is instant).
-unsigned long BrakeBeforeReverseMs = 1500;
+unsigned long BrakeBeforeReverseMs = 2500;
 BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, BrakeBeforeReverseMs);
 BreakReverse breakReverse = BreakReverse(breakReverseState, OnReverse, OnBreak);
 
@@ -250,7 +250,8 @@ void printDebug(unsigned long nowMs) {
   lastDebugPrintMs = nowMs;
 
   if (DebugPlotter) {
-    // band 1=REV 2=NEU 3=FWD; fsm 1=NEUTRAL 2=FWD 3=REV 4=BRK.
+    // band 1=SHR 2=NEU 3=FWD; fsm 1=NEUTRAL 2=FWD 3=REV 4=BRK.
+    // forward = live forward band (≥ NeutralHi). fwdTrip = latched from-forward context.
     Serial.print("CH2:");
     Serial.print(CH2);
     Serial.print("\tCH1:");
@@ -261,6 +262,12 @@ void printDebug(unsigned long nowMs) {
     Serial.print(plotScaled(breakReverseState.lastBand, 1, 3));
     Serial.print("\tfsm:");
     Serial.print(plotScaled(breakReverseState.lastFsmState, 1, 4));
+    Serial.print("\tshared:");
+    Serial.print(plotLamp(breakReverseState.lastInShared, 1340UL, 1460UL));
+    Serial.print("\tforward:");
+    Serial.print(plotLamp(breakReverse.lastForwardOn, 1320UL, 1520UL));
+    Serial.print("\tfwdTrip:");
+    Serial.print(plotLamp(breakReverse.lastForwardTrip, 1360UL, 1440UL));
     Serial.print("\tbrake:");
     Serial.print(plotLamp(breakReverse.lastBrakeOn, 1240UL, 1480UL));
     Serial.print("\treverse:");
@@ -278,6 +285,12 @@ void printDebug(unsigned long nowMs) {
   Serial.print(BreakReverseState::bandName(breakReverseState.lastBand));
   Serial.print(" fsm:");
   Serial.print(BreakReverseState::stateName(breakReverseState.lastFsmState));
+  Serial.print(" shared:");
+  Serial.print(breakReverseState.lastInShared ? 1 : 0);
+  Serial.print(" forward:");
+  Serial.print(breakReverse.lastForwardOn ? 1 : 0);
+  Serial.print(" fwdTrip:");
+  Serial.print(breakReverse.lastForwardTrip ? 1 : 0);
   Serial.print(" brake:");
   Serial.print(breakReverse.lastBrakeOn ? 1 : 0);
   Serial.print(" reverse:");

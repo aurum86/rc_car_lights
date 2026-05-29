@@ -1,42 +1,43 @@
 typedef void (*OnBreakEvent)(bool);
 typedef void (*OnReverseEvent)(bool);
 
-// Brake + reverse share CH2 <= brakeReverseHi (see doc/brake_reverse_spec.md).
+// doc/brake_reverse_spec.md — shared range CH2 <= brakeReverseHi; lamps follow live CH2 only.
 class BreakReverseState {
   private:
-    static const unsigned long BAND_DEBOUNCE_MS = 50;
     static const unsigned long FORWARD_HOLD_MS = 120;
-    static const unsigned long LATCH_CLEAR_MS = 400;
+    static const unsigned long TRIP_CLEAR_MS = 400;
+    static const unsigned long SHARED_EXIT_HYST_US = 12;
+    static const unsigned long SHARED_ENTER_HOLD_MS = 30;
 
     unsigned long brakeReverseHi;
     unsigned long forwardLo;
-    unsigned long reverseEngageMs;
+    unsigned long brakeBeforeReverseMs;
 
-    int previousState = NEUTRAL;
-    int previousBand = 0;
-    unsigned long previousMillis = 0;
     unsigned long forwardHeldSince = 0;
     unsigned long sharedEnteredAt = 0;
-    unsigned long leftSharedAt = 0;
+    unsigned long centerIdleSince = 0;
     bool forwardTrip = false;
-    bool reverseLatched = false;
-
-    static const int BAND_SHARED = 1;
-    static const int BAND_NEUTRAL = 2;
-    static const int BAND_FORWARD = 3;
-
-    int throttleBand(unsigned long throttle) const {
-      if (throttle <= this->brakeReverseHi) {
-        return BAND_SHARED;
-      }
-      if (throttle < this->forwardLo) {
-        return BAND_NEUTRAL;
-      }
-      return BAND_FORWARD;
-    }
+    bool brakeSessionFromForward = false;
 
     bool inSharedRange(unsigned long throttle) const {
       return throttle <= this->brakeReverseHi;
+    }
+
+    bool aboveSharedExit(unsigned long throttle) const {
+      return throttle > this->brakeReverseHi + SHARED_EXIT_HYST_US;
+    }
+
+    bool sharedStable(unsigned long nowMs) const {
+      return this->sharedEnteredAt > 0
+          && this->sharedEnteredAt + SHARED_ENTER_HOLD_MS <= nowMs;
+    }
+
+    bool inForwardRange(unsigned long throttle) const {
+      return throttle >= this->forwardLo;
+    }
+
+    bool inCenterIdle(unsigned long throttle) const {
+      return throttle > this->brakeReverseHi && throttle + 12 >= this->forwardLo;
     }
 
     bool forwardConfirmed(unsigned long nowMs) const {
@@ -44,15 +45,13 @@ class BreakReverseState {
           && this->forwardHeldSince + FORWARD_HOLD_MS <= nowMs;
     }
 
-    // After forward only: brake this long in shared range before reverse lamp.
     bool brakeHoldElapsed(unsigned long nowMs) const {
       return this->sharedEnteredAt > 0
-          && this->sharedEnteredAt + this->reverseEngageMs <= nowMs;
+          && this->sharedEnteredAt + this->brakeBeforeReverseMs <= nowMs;
     }
 
     void updateForwardTrip(unsigned long throttle, unsigned long nowMs) {
-      int band = this->throttleBand(throttle);
-      if (band == BAND_FORWARD) {
+      if (this->inForwardRange(throttle)) {
         if (this->forwardHeldSince == 0) {
           this->forwardHeldSince = nowMs;
         }
@@ -62,28 +61,41 @@ class BreakReverseState {
       } else {
         this->forwardHeldSince = 0;
       }
+
+      if (this->inSharedRange(throttle) && this->forwardTrip) {
+        this->brakeSessionFromForward = true;
+      }
+
+      if (!this->inSharedRange(throttle) && this->brakeSessionFromForward) {
+        this->forwardTrip = false;
+        this->brakeSessionFromForward = false;
+        this->sharedEnteredAt = 0;
+      }
+
+      if (this->inCenterIdle(throttle)) {
+        if (this->centerIdleSince == 0) {
+          this->centerIdleSince = nowMs;
+        } else if (this->centerIdleSince + TRIP_CLEAR_MS <= nowMs) {
+          this->forwardTrip = false;
+          this->brakeSessionFromForward = false;
+        }
+      } else {
+        this->centerIdleSince = 0;
+      }
     }
 
     void updateSharedTimer(unsigned long throttle, unsigned long nowMs) {
-      if (this->inSharedRange(throttle)) {
-        if (this->sharedEnteredAt == 0) {
-          this->sharedEnteredAt = nowMs;
-        }
-        this->leftSharedAt = 0;
-      } else {
+      if (!this->inSharedRange(throttle)) {
         this->sharedEnteredAt = 0;
-        if (this->leftSharedAt == 0) {
-          this->leftSharedAt = nowMs;
-        } else if (this->leftSharedAt + LATCH_CLEAR_MS <= nowMs) {
-          this->reverseLatched = false;
-          this->forwardTrip = false;
-        }
+      } else if (this->sharedEnteredAt == 0) {
+        this->sharedEnteredAt = nowMs;
       }
     }
   public:
     int lastBand = 0;
     int lastFsmState = NEUTRAL;
     bool lastForwardTrip = false;
+    bool lastInShared = false;
 
     static const int NEUTRAL = 1;
     static const int FORWARDING = 2;
@@ -92,9 +104,9 @@ class BreakReverseState {
 
     static const char* bandName(int band) {
       switch (band) {
-        case BAND_SHARED: return "SHR";
-        case BAND_NEUTRAL: return "NEU";
-        case BAND_FORWARD: return "FWD";
+        case 1: return "SHR";
+        case 2: return "NEU";
+        case 3: return "FWD";
         default: return "?";
       }
     }
@@ -110,63 +122,69 @@ class BreakReverseState {
     }
 
     BreakReverseState(unsigned long brakeReverseHi, unsigned long forwardLo,
-        unsigned long reverseEngageMs = 500):
+        unsigned long brakeBeforeReverseMs = 1500):
       brakeReverseHi(brakeReverseHi),
       forwardLo(forwardLo),
-      reverseEngageMs(reverseEngageMs)
+      brakeBeforeReverseMs(brakeBeforeReverseMs)
     {}
 
-    int getState(unsigned long throttle, unsigned long nowMs) {
-      if (this->previousMillis > nowMs) {
-        this->previousMillis = nowMs;
-      }
-
-      int band = this->throttleBand(throttle);
-      if (band == this->previousBand && this->previousMillis + BAND_DEBOUNCE_MS > nowMs) {
-        return this->previousState;
-      }
-
+    void updateContext(unsigned long throttle, unsigned long nowMs) {
       this->updateForwardTrip(throttle, nowMs);
       this->updateSharedTimer(throttle, nowMs);
       this->lastForwardTrip = this->forwardTrip;
+      this->lastInShared = this->inSharedRange(throttle);
 
-      int state = NEUTRAL;
-
-      if (band == BAND_FORWARD) {
-        state = FORWARDING;
-      } else if (!this->inSharedRange(throttle)) {
-        state = NEUTRAL;
-      } else if (!this->forwardTrip) {
-        state = REVERSING;
-      } else if (this->brakeHoldElapsed(nowMs)) {
-        state = REVERSING;
+      if (this->inForwardRange(throttle)) {
+        this->lastBand = 3;
+        this->lastFsmState = FORWARDING;
+      } else if (this->inSharedRange(throttle)) {
+        this->lastBand = 1;
+        if (!this->forwardTrip) {
+          this->lastFsmState = REVERSING;
+        } else if (this->brakeHoldElapsed(nowMs)) {
+          this->lastFsmState = REVERSING;
+        } else {
+          this->lastFsmState = BREAKING;
+        }
       } else {
-        state = BREAKING;
+        this->lastBand = 2;
+        this->lastFsmState = NEUTRAL;
+      }
+    }
+
+    void lampOutputs(unsigned long throttle, unsigned long nowMs, bool& brakeOn, bool& reverseOn) {
+      this->updateContext(throttle, nowMs);
+
+      brakeOn = false;
+      reverseOn = false;
+
+      if (this->aboveSharedExit(throttle) || !this->inSharedRange(throttle)) {
+        return;
       }
 
-      if (state == REVERSING) {
-        this->reverseLatched = true;
+      if (!this->sharedStable(nowMs)) {
+        return;
       }
 
-      this->previousState = state;
-      this->previousBand = band;
-      this->previousMillis = nowMs;
-      this->lastBand = band;
-      this->lastFsmState = state;
-
-      return state;
+      if (!this->forwardTrip) {
+        reverseOn = true;
+      } else if (this->brakeHoldElapsed(nowMs)) {
+        reverseOn = true;
+      } else {
+        brakeOn = true;
+      }
     }
 
     void resetOutputs() {
-      this->reverseLatched = false;
       this->forwardTrip = false;
+      this->brakeSessionFromForward = false;
       this->forwardHeldSince = 0;
       this->sharedEnteredAt = 0;
-      this->leftSharedAt = 0;
-      this->previousState = NEUTRAL;
+      this->centerIdleSince = 0;
       this->lastFsmState = NEUTRAL;
       this->lastBand = 0;
       this->lastForwardTrip = false;
+      this->lastInShared = false;
     }
 };
 
@@ -175,9 +193,13 @@ class BreakReverse {
     BreakReverseState state;
     OnReverseEvent onReverse;
     OnBreakEvent onBreak;
+    bool pinReverseOn = false;
+    bool pinBreakOn = false;
   public:
     bool lastBrakeOn = false;
     bool lastReverseOn = false;
+    bool lastForwardOn = false;
+    bool lastForwardTrip = false;
 
     BreakReverse(BreakReverseState state, OnReverseEvent onReverse, OnBreakEvent onBreak):
       state(state),
@@ -189,27 +211,27 @@ class BreakReverse {
       bool brakeOn = false;
       bool reverseOn = false;
 
-      switch (this->state.getState(throttle, nowMs)) {
-        case BreakReverseState::BREAKING:
-          brakeOn = true;
-          break;
-        case BreakReverseState::REVERSING:
-          reverseOn = true;
-          break;
-        default:
-          break;
-      }
+      this->state.lampOutputs(throttle, nowMs, brakeOn, reverseOn);
 
       this->lastBrakeOn = brakeOn;
       this->lastReverseOn = reverseOn;
+      this->lastForwardOn = this->state.lastFsmState == BreakReverseState::FORWARDING;
+      this->lastForwardTrip = this->state.lastForwardTrip;
+
       this->onBreak(brakeOn);
       this->onReverse(reverseOn);
+      this->pinBreakOn = brakeOn;
+      this->pinReverseOn = reverseOn;
     }
 
     void reset() {
       this->state.resetOutputs();
       this->lastBrakeOn = false;
       this->lastReverseOn = false;
+      this->lastForwardOn = false;
+      this->lastForwardTrip = false;
+      this->pinBreakOn = false;
+      this->pinReverseOn = false;
       this->onBreak(false);
       this->onReverse(false);
     }
