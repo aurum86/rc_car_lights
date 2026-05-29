@@ -10,7 +10,12 @@
 #include "low_voltage_detector.cpp"
 #include "fade_curve.h"
 
-bool Debug = false;
+bool Debug = true;
+// true = tab-separated label:value lines for Tools → Serial Plotter (numeric traces only).
+bool DebugPlotter = true;
+// Serial + printDebug() block the loop; rate-limit so RC sampling and brake logic stay stable.
+static const unsigned long DEBUG_PRINT_INTERVAL_MS = 100;
+static unsigned long lastDebugPrintMs = 0;
 // When true, skips RC logic and drives every light output steady-on for wiring checks.
 bool Troubleshoot = false;
 
@@ -32,8 +37,8 @@ int pinExhaust = 9;
 int pinBreak = 8;
 int pinReverse = 7;
 
-// Brake works with HIGH = lamp on; if reverse stays on at idle, set this true (inverted driver).
-const bool REVERSE_LED_ACTIVE_LOW = true;
+// Brake: HIGH = on. Reverse: false = HIGH on (true if your driver is inverted).
+const bool REVERSE_LED_ACTIVE_LOW = false;
 int pinLightsR = 12; //rear lights
 int pinLights1 = 11; //daylight rear, this should be pwm pin
 int pinLights2 = 10; //xenon, this should be pwm pin
@@ -200,10 +205,12 @@ EmergencyLights emergencyLightsWithDaylights = EmergencyLights(1700, 1900, OnEme
 
 BackFire backFire = BackFire(1500, OnBackFire);
 
-// Brake/reverse bands (Sanwa RX472–style, calibrated): reverse ≤1370, neutral 1370–1390, forward ≥1390.
-int NeutralLo = 1370;
-int NeutralHi = 1390;
-BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, 2200);
+// Brake/reverse zones (doc/brake_reverse_spec.md): shared ≤1370, neutral 1371–1389, forward ≥1390.
+int NeutralLo = 1375;
+int NeutralHi = 1400;
+// After forward only: brake lamp duration in shared range before reverse (idle→back is instant).
+unsigned long BrakeBeforeReverseMs = 1500;
+BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, BrakeBeforeReverseMs);
 BreakReverse breakReverse = BreakReverse(breakReverseState, OnReverse, OnBreak);
 
 LowVoltageDetector lowVoltageDetector = LowVoltageDetector(6.8, OnLowVoltage);
@@ -215,20 +222,66 @@ unsigned long CH3;
 unsigned long CH2;
 unsigned long CH1;
 
-void printDebug() {
-  Serial.print("CH1: ");
+static const unsigned long PLOT_Y_MIN = 1200UL;
+static const unsigned long PLOT_Y_MAX = 1600UL;
+
+// Map discrete codes into 1200..1600 so state traces share CH2's plot scale.
+static unsigned long plotScaled(unsigned long value, unsigned long valueMin, unsigned long valueMax) {
+  if (valueMax <= valueMin) {
+    return PLOT_Y_MIN;
+  }
+  if (value <= valueMin) {
+    return PLOT_Y_MIN;
+  }
+  if (value >= valueMax) {
+    return PLOT_Y_MAX;
+  }
+  return PLOT_Y_MIN + (value - valueMin) * (PLOT_Y_MAX - PLOT_Y_MIN) / (valueMax - valueMin);
+}
+
+static unsigned long plotLamp(bool on, unsigned long offY, unsigned long onY) {
+  return on ? onY : offY;
+}
+
+void printDebug(unsigned long nowMs) {
+  if (nowMs - lastDebugPrintMs < DEBUG_PRINT_INTERVAL_MS) {
+    return;
+  }
+  lastDebugPrintMs = nowMs;
+
+  if (DebugPlotter) {
+    // band 1=REV 2=NEU 3=FWD; fsm 1=NEUTRAL 2=FWD 3=REV 4=BRK.
+    Serial.print("CH2:");
+    Serial.print(CH2);
+    Serial.print("\tCH1:");
+    Serial.print(CH1);
+    Serial.print("\tCH3:");
+    Serial.print(CH3);
+    Serial.print("\tband:");
+    Serial.print(plotScaled(breakReverseState.lastBand, 1, 3));
+    Serial.print("\tfsm:");
+    Serial.print(plotScaled(breakReverseState.lastFsmState, 1, 4));
+    Serial.print("\tbrake:");
+    Serial.print(plotLamp(breakReverse.lastBrakeOn, 1240UL, 1480UL));
+    Serial.print("\treverse:");
+    Serial.println(plotLamp(breakReverse.lastReverseOn, 1280UL, 1560UL));
+    return;
+  }
+
+  Serial.print("CH1:");
   Serial.print(CH1);
-  Serial.print("     ");
-
-  Serial.print("CH2: ");
+  Serial.print(" CH2:");
   Serial.print(CH2);
-  Serial.print("     ");
-
-  Serial.print("CH3: ");
+  Serial.print(" CH3:");
   Serial.print(CH3);
-
-  Serial.print("\n");
-  delay(100);
+  Serial.print(" band:");
+  Serial.print(BreakReverseState::bandName(breakReverseState.lastBand));
+  Serial.print(" fsm:");
+  Serial.print(BreakReverseState::stateName(breakReverseState.lastFsmState));
+  Serial.print(" brake:");
+  Serial.print(breakReverse.lastBrakeOn ? 1 : 0);
+  Serial.print(" reverse:");
+  Serial.println(breakReverse.lastReverseOn ? 1 : 0);
 }
 
 void initDigitalOuts() {
@@ -268,7 +321,8 @@ void setup() {
   pinMode(pinCh3, INPUT);
 
   if (Debug) {
-    Serial.begin(9600);
+    // 115200 keeps printDebug() from blocking pulseIn/debounce (~10× less than 9600).
+    Serial.begin(115200);
   }
 }
 
@@ -282,10 +336,6 @@ void loop() {
   CH2 = pulseIn(pinCh2, HIGH, RC_PULSE_TIMEOUT_US);
   CH3 = pulseIn(pinCh3, HIGH, RC_PULSE_TIMEOUT_US);
   voltage = analogRead(pinVoltageMetter);
-
-  if (Debug) {
-    printDebug();
-  }
 
   if (lowVoltageDetector.evaluate(voltage)) {
     OnLowVoltage(0);
@@ -306,7 +356,10 @@ void loop() {
   if (isValidRcPulse(CH2)) {
     breakReverse.evaluate(CH2, millisec);
   } else {
-    OnReverse(false);
-    OnBreak(false);
+    breakReverse.reset();
+  }
+
+  if (Debug) {
+    printDebug(millisec);
   }
 }
