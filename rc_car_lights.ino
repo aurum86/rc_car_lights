@@ -10,12 +10,6 @@
 #include "low_voltage_detector.cpp"
 #include "fade_curve.h"
 
-bool Debug = false;
-// true = tab-separated label:value lines for Tools → Serial Plotter (numeric traces only).
-bool DebugPlotter = false;
-// Serial + printDebug() block the loop; rate-limit so RC sampling and brake logic stay stable.
-static const unsigned long DEBUG_PRINT_INTERVAL_MS = 100;
-static unsigned long lastDebugPrintMs = 0;
 // When true, skips RC logic and drives every light output steady-on for wiring checks.
 bool Troubleshoot = false;
 
@@ -154,7 +148,7 @@ void OnBackFire(unsigned long intensity) {
     intensity = 255;
   }
 
-  // D7 has no hardware PWM — intensity drives pop count and timing, not brightness.
+  // D9 exhaust — intensity drives pop count and timing, not brightness.
   int pops = 1;
   if (intensity > 70) {
     pops = 2;
@@ -205,97 +199,16 @@ EmergencyLights emergencyLightsWithDaylights = EmergencyLights(1700, 1900, OnEme
 
 BackFire backFire = BackFire(1500, OnBackFire);
 
-// Brake/reverse zones (doc/brake_reverse_spec.md): shared ≤1370, neutral 1371–1389, forward ≥1390.
+// Brake/reverse zones (doc/brake_reverse_spec.md): shared ≤1370, neutral 1371–1399, forward ≥1400.
 int NeutralLo = 1370;
 int NeutralHi = 1400;
 // After forward only: brake lamp duration in shared range before reverse (idle→back is instant).
 unsigned long BrakeBeforeReverseMs = 2500;
-BreakReverseState breakReverseState = BreakReverseState(NeutralLo, NeutralHi, BrakeBeforeReverseMs);
-BreakReverse breakReverse = BreakReverse(breakReverseState, OnReverse, OnBreak);
+BreakReverse breakReverse = BreakReverse(NeutralLo, NeutralHi, BrakeBeforeReverseMs, OnReverse, OnBreak);
 
 LowVoltageDetector lowVoltageDetector = LowVoltageDetector(6.8, OnLowVoltage);
 
 // end of INITIALIZATION
-
-unsigned long voltage;
-unsigned long CH3;
-unsigned long CH2;
-unsigned long CH1;
-
-static const unsigned long PLOT_Y_MIN = 1200UL;
-static const unsigned long PLOT_Y_MAX = 1600UL;
-
-// Map discrete codes into 1200..1600 so state traces share CH2's plot scale.
-static unsigned long plotScaled(unsigned long value, unsigned long valueMin, unsigned long valueMax) {
-  if (valueMax <= valueMin) {
-    return PLOT_Y_MIN;
-  }
-  if (value <= valueMin) {
-    return PLOT_Y_MIN;
-  }
-  if (value >= valueMax) {
-    return PLOT_Y_MAX;
-  }
-  return PLOT_Y_MIN + (value - valueMin) * (PLOT_Y_MAX - PLOT_Y_MIN) / (valueMax - valueMin);
-}
-
-static unsigned long plotLamp(bool on, unsigned long offY, unsigned long onY) {
-  return on ? onY : offY;
-}
-
-void printDebug(unsigned long nowMs) {
-  if (nowMs - lastDebugPrintMs < DEBUG_PRINT_INTERVAL_MS) {
-    return;
-  }
-  lastDebugPrintMs = nowMs;
-
-  if (DebugPlotter) {
-    // band 1=SHR 2=NEU 3=FWD; fsm 1=NEUTRAL 2=FWD 3=REV 4=BRK.
-    // forward = live forward band (≥ NeutralHi). fwdTrip = latched from-forward context.
-    Serial.print("CH2:");
-    Serial.print(CH2);
-    Serial.print("\tCH1:");
-    Serial.print(CH1);
-    Serial.print("\tCH3:");
-    Serial.print(CH3);
-    Serial.print("\tband:");
-    Serial.print(plotScaled(breakReverseState.lastBand, 1, 3));
-    Serial.print("\tfsm:");
-    Serial.print(plotScaled(breakReverseState.lastFsmState, 1, 4));
-    Serial.print("\tshared:");
-    Serial.print(plotLamp(breakReverseState.lastInShared, 1340UL, 1460UL));
-    Serial.print("\tforward:");
-    Serial.print(plotLamp(breakReverse.lastForwardOn, 1320UL, 1520UL));
-    Serial.print("\tfwdTrip:");
-    Serial.print(plotLamp(breakReverse.lastForwardTrip, 1360UL, 1440UL));
-    Serial.print("\tbrake:");
-    Serial.print(plotLamp(breakReverse.lastBrakeOn, 1240UL, 1480UL));
-    Serial.print("\treverse:");
-    Serial.println(plotLamp(breakReverse.lastReverseOn, 1280UL, 1560UL));
-    return;
-  }
-
-  Serial.print("CH1:");
-  Serial.print(CH1);
-  Serial.print(" CH2:");
-  Serial.print(CH2);
-  Serial.print(" CH3:");
-  Serial.print(CH3);
-  Serial.print(" band:");
-  Serial.print(BreakReverseState::bandName(breakReverseState.lastBand));
-  Serial.print(" fsm:");
-  Serial.print(BreakReverseState::stateName(breakReverseState.lastFsmState));
-  Serial.print(" shared:");
-  Serial.print(breakReverseState.lastInShared ? 1 : 0);
-  Serial.print(" forward:");
-  Serial.print(breakReverse.lastForwardOn ? 1 : 0);
-  Serial.print(" fwdTrip:");
-  Serial.print(breakReverse.lastForwardTrip ? 1 : 0);
-  Serial.print(" brake:");
-  Serial.print(breakReverse.lastBrakeOn ? 1 : 0);
-  Serial.print(" reverse:");
-  Serial.println(breakReverse.lastReverseOn ? 1 : 0);
-}
 
 void initDigitalOuts() {
   int len = 8;
@@ -332,11 +245,6 @@ void setup() {
   pinMode(pinCh1, INPUT);
   pinMode(pinCh2, INPUT);
   pinMode(pinCh3, INPUT);
-
-  if (Debug) {
-    // 115200 keeps printDebug() from blocking pulseIn/debounce (~10× less than 9600).
-    Serial.begin(115200);
-  }
 }
 
 void loop() {
@@ -345,10 +253,10 @@ void loop() {
     return;
   }
 
-  CH1 = pulseIn(pinCh1, HIGH, RC_PULSE_TIMEOUT_US);
-  CH2 = pulseIn(pinCh2, HIGH, RC_PULSE_TIMEOUT_US);
-  CH3 = pulseIn(pinCh3, HIGH, RC_PULSE_TIMEOUT_US);
-  voltage = analogRead(pinVoltageMetter);
+  unsigned long CH1 = pulseIn(pinCh1, HIGH, RC_PULSE_TIMEOUT_US);
+  unsigned long CH2 = pulseIn(pinCh2, HIGH, RC_PULSE_TIMEOUT_US);
+  unsigned long CH3 = pulseIn(pinCh3, HIGH, RC_PULSE_TIMEOUT_US);
+  unsigned long voltage = analogRead(pinVoltageMetter);
 
   if (lowVoltageDetector.evaluate(voltage)) {
     OnLowVoltage(0);
@@ -370,9 +278,5 @@ void loop() {
     breakReverse.evaluate(CH2, millisec);
   } else {
     breakReverse.reset();
-  }
-
-  if (Debug) {
-    printDebug(millisec);
   }
 }

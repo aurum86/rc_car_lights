@@ -54,16 +54,16 @@ The exhaust LED on **D9** (`pinExhaust`) is driven by `BackFire` in `backfire.cp
 
 ### CH2 regions relevant to backfire
 
-Brake/reverse uses **`NeutralLo` / `NeutralHi`** (**1370 / 1390 µs** in `rc_car_lights.ino`); backfire only arms above **1500 µs** (well into forward travel).
+Brake/reverse uses **`NeutralLo` / `NeutralHi`** (**1370 / 1400 µs** in `rc_car_lights.ino`); backfire only arms above **1500 µs** (well into forward travel).
 
 ```
-      reverse / brake          neutral (BR)        forward (backfire zone)
-    ◄──────────────────► ◄────────────► ◄──────────────────────────────►
-    1000              1370        1390   1500                          1900+
-         │                │           │      │                              │
-         │                ├───────────┤      │◄── BackFire threshold ───────►│
-         │                │ NeutralLo/Hi   │
-    ─────┴────────────────┴───────────┴──────┴──────────────────────────────► CH2 (µs)
+      shared brake+reverse      neutral (BR)        forward (backfire zone)
+    ◄──────────────────► ◄──────────────► ◄──────────────────────────────►
+    1000              1370           1400   1500                          1900+
+         │                │              │      │                              │
+         │                ├──────────────┤      │◄── BackFire threshold ───────►│
+         │                │ NeutralLo/Hi      │
+    ─────┴────────────────┴──────────────┴──────┴──────────────────────────────► CH2 (µs)
 ```
 
 ### When a pop triggers (one loop sample)
@@ -91,7 +91,7 @@ Example: a throttle hit from neutral to mid-forward in one loop (large Δ) fires
   1900 ┤                              ╭────────────  hold: Δ≈0, no new pop
   1800 ┤                         ╭────╯
   1500 ┤ - - - - - - - - - - - - ┼ - - - - - - - - -  threshold
-  1390 ┤         neutral ═══════╪
+  1400 ┤         neutral ═══════╪
   1370 ┤    ════════╯           │
        └────────────────────────┴──────────────────► time / loop iterations
               snap ↑              COOLDOWN (350 ms) before next snap can pop
@@ -135,23 +135,54 @@ flowchart LR
 
 ## Brake and reverse lights — CH2 throttle logic
 
-Each `loop()`, after a valid CH2 pulse is captured (`pulseIn` on **D3** with a **25 ms** timeout; pulses outside **900…2100 µs** are ignored and both brake and reverse outputs are forced off), `BreakReverse` in `break_reverse.cpp` classifies throttle into three bands using `NeutralLo` / `NeutralHi` from `rc_car_lights.ino` (calibrated **1370** and **1390 µs**, open interval on neutral): **reverse** when `CH2 ≤ 1370`, **neutral** when `1370 < CH2 < 1390`, **forward** when `CH2 ≥ 1390`. Set `REVERSE_LED_ACTIVE_LOW` in `rc_car_lights.ino` if the reverse channel uses an inverted driver (brake on **D8** uses `HIGH` = on). The brake lamp (**D8**) and reverse lamp (**D7**) follow this state machine so the lights *mimic* common ESC “brake before reverse” behavior using only the receiver throttle PWM.
+Full specification: **`doc/brake_reverse_spec.md`**.
 
-After the stick has been in **forward**, pulling below `NeutralHi` starts a **brake session**: brake ON while CH2 stays below forward and outside the idle window at the top of the neutral band (`CH2 ≥ NeutralHi − 25` inside neutral ends the session). Returning to **forward** (`CH2 ≥ NeutralHi`) turns the brake off. From **forward** into the **reverse** band, the firmware enters **BREAKING** first (brake ON, reverse OFF). If the stick stays in reverse for longer than `breakTimeout` (default **2200 ms**), the state becomes **REVERSING** (brake OFF, reverse ON). A latch keeps reverse lights stable across brief noise until neutral or **400 ms** outside the reverse band. `OnReverse` and `OnBreak` each drive only their own pin. State updates use **50 ms** debounce only while CH2 stays in the same band; band changes apply immediately so fast FWD→brake snaps are not missed. From **neutral** straight into reverse (no prior forward), reverse lights can turn on without a brake phase.
+Each `loop()`, after a valid CH2 pulse (`pulseIn` on **D3**, **25 ms** timeout; outside **900…2100 µs** → `BreakReverse::reset()`, both lamps off), `BreakReverse` in `break_reverse.cpp` drives the brake (**D8**, `HIGH` = on) and reverse (**D7**, `HIGH` = on unless `REVERSE_LED_ACTIVE_LOW`) lamps from **live CH2** and two internal latches. Tunables in `rc_car_lights.ino`: **`NeutralLo` 1370**, **`NeutralHi` 1400**, **`BrakeBeforeReverseMs` 2500**.
 
-That model aligns in spirit with how many car ESCs behave in **“Forward/Reverse with Brake”** mode, but it is **not** a byte-for-byte copy of ESC firmware. Manufacturer docs (e.g. Hobbywing, Speed Passion Reventon, RC4WD Outcry) describe a **double-tap** or **neutral-wait** sequence: the first pull into the brake/reverse side of the stick applies **braking only**; actual reverse often requires a **second** tap or returning to **neutral** until a **reverse delay** elapses (Tekin’s default **Forward/Brake with Reverse Delay** is about **0.75 s** at neutral, programmable roughly **0–2 s**; ArduPilot rover notes often cite ~**0.3 s** as a typical minimum). Many ESCs also refuse reverse until the motor has **stopped**. This project instead uses a **single** continuous reverse-band reading after forward travel, a **fixed 2.2 s** brake-hold timer (`breakTimeout`), and does **not** require passing through neutral or a second trigger—so brake/reverse **LED timing can differ** from when the ESC actually applies reverse torque, especially if the ESC delay is reprogrammed or the car is still coasting. Adjust `NeutralLo`, `NeutralHi`, and `breakTimeout` in the INITIALIZATION section of `rc_car_lights.ino` to match your receiver endpoints and how long you want brake lights before reverse lights; use `Debug` and Serial at **9600 baud** to read live CH2 values while moving the stick through neutral, forward, and reverse.
+### PWM bands
+
+| Band | Condition | Lamps |
+| ---- | --------- | ----- |
+| **Shared** | `CH2 ≤ NeutralLo` (1370) | Brake or reverse (see below) |
+| **Neutral** | `1370 < CH2 < NeutralHi` (1400) | Off |
+| **Forward** | `CH2 ≥ NeutralHi` | Off |
+
+Brake and reverse share the **same** stick direction and the **same** µs range (1370 down to MIN). There is no “deeper pull” threshold for reverse.
+
+### Lamp selection inside shared range
+
+Lamps turn on only after **30 ms** continuously in shared range (glitch filter). Then:
+
+| Context | Brake | Reverse |
+| ------- | ----- | ------- |
+| **Idle → shared** (`forwardTrip` false) | Off | **On** |
+| **Forward → shared** (`forwardTrip` true) | **On** until `BrakeBeforeReverseMs` | **On** after timer |
+| **Coast** (forward, never ≤ 1370) | Off | Off |
+
+**`forwardTrip`** — set after **120 ms** in the forward band; means “driver was throttling forward.” Cleared when:
+
+- CH2 leaves shared range after a forward-origin brake session (`brakeSessionFromForward`), e.g. brake → idle → reverse works without resetting throttle; or
+- **400 ms** at center idle while coasting from forward without entering shared.
+
+### Flow (simplified)
 
 ```
-  CH2 stick ──►  FORWARD (≥1390) ──► pull to reverse (≤1370)
+  CH2 stick ──►  FORWARD (≥1400) ──► shared (≤1370), forwardTrip set
                       │                      │
                       │                      ▼
-                      │              BREAKING (brake LED, ~breakTimeout)
+                      │              brake LED (≤ BrakeBeforeReverseMs)
                       │                      │
-                      │                      ▼ (timer expired, still in reverse band)
-                      │              REVERSING (reverse LED)
+                      │                      ▼ (timer elapsed, still in shared)
+                      │              reverse LED
                       │
-  NEUTRAL (1370…1390) ──► reverse band ──► REVERSING immediately (no brake phase)
+  NEUTRAL (1371…1399) ──► shared ──► reverse LED after 30 ms (no brake phase)
+
+  Forward → brake → idle (>1370) ──► shared ──► reverse LED (forwardTrip cleared on idle)
 ```
+
+This mimics ESC-style **brake before reverse** after a forward run, but uses a **hold timer in shared range** rather than ESC double-tap / neutral-wait rules. LED timing may differ from when the ESC applies reverse torque.
+
+Adjust `NeutralLo`, `NeutralHi`, and `BrakeBeforeReverseMs` in the INITIALIZATION section of `rc_car_lights.ino` to match your receiver.
 
 ## Pin assignment (as in `rc_car_lights.ino`)
 
@@ -188,21 +219,21 @@ Hardware PWM on the Nano: **D5, D6, D9, D10, D11** (and D3 if unused). **D7, D8,
 
 ## Calibration
 
-Pulse width thresholds are tuned for a **Sanwa RX472**-style receiver. Set `Debug` to `true`, use **9600 baud** Serial, and adjust values in the **INITIALIZATION** section of `rc_car_lights.ino` if your endpoints differ.
+Pulse width thresholds are tuned for a **Sanwa RX472**-style receiver. Adjust values in the **INITIALIZATION** section of `rc_car_lights.ino` if your endpoints differ. See **`doc/brake_reverse_spec.md` §7** for brake/reverse calibration steps.
 
 ### CH2 throttle constants (as calibrated in firmware)
 
 
-| Constant | Value (µs) | Used by | Meaning |
-| -------- | -----------: | ------- | ------- |
-| `NeutralLo` | **1370** | `BreakReverse` | Reverse band: `CH2 ≤ NeutralLo` |
-| `NeutralHi` | **1390** | `BreakReverse` | Forward band: `CH2 ≥ NeutralHi`; between Lo and Hi = neutral |
-| `breakTimeout` | **2200** (ms) | `BreakReverse` | Brake LED duration in reverse band before reverse LED |
-| `throttleLo` | **1350** | `Turns` | Turn signals: throttle must be above this |
-| `throttleHi` | **1450** | `Turns` | Turn signals: throttle must be below this (3 s dwell) |
-| `BackFire(1500, …)` | **1500** | `BackFire` | Exhaust pop when CH2 rises above this |
+| Constant | Value | Used by | Meaning |
+| -------- | ----- | ------- | ------- |
+| `NeutralLo` | **1370** µs | `BreakReverse` | Shared brake+reverse: `CH2 ≤ NeutralLo` |
+| `NeutralHi` | **1400** µs | `BreakReverse` | Forward band: `CH2 ≥ NeutralHi`; between = neutral |
+| `BrakeBeforeReverseMs` | **2500** ms | `BreakReverse` | Brake lamp time in shared range after forward |
+| `throttleLo` | **1370** µs | `Turns` | Turn signals: throttle must be above this |
+| `throttleHi` | **1390** µs | `Turns` | Turn signals: throttle must be below this (3 s dwell) |
+| `BackFire(1500, …)` | **1500** µs | `BackFire` | Exhaust pop when CH2 rises above this |
 
-`NeutralLo` / `NeutralHi` and `throttleLo` / `throttleHi` are separate on purpose: brake/reverse vs turn-signal “standstill” gating. Align them with debug readings if your transmitter differs.
+`NeutralLo` / `NeutralHi` and `throttleLo` / `throttleHi` are separate on purpose: brake/reverse vs turn-signal “standstill” gating.
 
 ## Dependencies
 

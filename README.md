@@ -24,7 +24,8 @@
 ### Calibration
 * This is already tested and calibrated for Sanwa RX472 receiver. Therefore, if your receiver is not the same, it is likely that calibration will be needed in order for lights to work as expected.
 #### How to calibrate
-* For calibration you will have to test your receiver by temporaly enabling the *debug mode* - in the main source file set the Debug variable to true. Then turn the ESC on and plug in the Arduino board to PC using USB cable. Observe the output values of all three channels and make the fine-tunning of initial values in the "INITIALIZATION" section in the main source file.
+* Measure each channel’s pulse width (µs) at idle, full forward, brake/reverse, and steering extremes — e.g. with a scope, logic analyzer, or temporary `Serial.print` of `pulseIn` results in `loop()`.
+* Adjust thresholds in the **INITIALIZATION** section of `rc_car_lights.ino`. Brake and reverse logic is documented in **`doc/brake_reverse_spec.md`** (`NeutralLo`, `NeutralHi`, `BrakeBeforeReverseMs`).
 ### Disabling the features you dont need
 * Features that you do not need can be disabled by commenting out the corresponding code lines in the main file - rc_car_lights.ino.
 ### Voltage monitor feature
